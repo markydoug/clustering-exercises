@@ -72,3 +72,37 @@ def nulls_by_col(df):
     cols_missing = pd.DataFrame({'num_rows_missing': num_missing, 'percent_rows_missing': percent_missing})
     
     return cols_missing.sort_values(by='num_rows_missing', ascending=False)
+
+def handle_missing_values(df, prop_required_columns=0.5, prop_required_rows=0.75):
+    column_threshold = int(round(prop_required_columns * len(df.index), 0))
+    df = df.dropna(axis=1, thresh=column_threshold)
+    row_threshold = int(round(prop_required_rows * len(df.columns), 0))
+    df = df.dropna(axis=0, thresh=row_threshold)
+    return df
+
+def drop_id_columns(df):
+    ids_to_drop = ['id','id.1','airconditioningtypeid','architecturalstyletypeid','buildingclasstypeid','heatingorsystemtypeid','propertylandusetypeid','storytypeid','typeconstructiontypeid']
+    df.drop(columns=ids_to_drop, inplace=True)
+    return df
+
+def keep_single_unit_properties(df):
+    df = df[(df.propertylandusedesc=='Manufactured, Modular, Prefabricated Homes') | 
+        (df.propertylandusedesc=='Single Family Residential') |
+        (df.propertylandusedesc=='Condominium') |
+        (df.propertylandusedesc=='Cluster Home') |
+        (df.propertylandusedesc=='Mobile Home') |
+        (df.propertylandusedesc=='Townhouse')]
+    return df
+
+def drop_dup_parcelids(df):
+    dups = df[df.duplicated(subset='parcelid', keep='last')].index
+    df.drop(dups, inplace=True)
+    return df
+
+def wrangle_zillow_2():
+    df = acquire_zillow_data()
+    df = drop_dup_parcelids(df)
+    df = drop_id_columns(df)
+    df = keep_single_unit_properties(df)
+    df = handle_missing_values(df)
+    return df
