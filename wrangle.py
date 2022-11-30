@@ -27,34 +27,36 @@ def new_zillow_data():
     '''
     # Create SQL query.
     sql_query='''
-        SELECT prop.*,
-        predictions_2017.logerror,
-        predictions_2017.transactiondate,
-        air.airconditioningdesc,
-        arch.architecturalstyledesc,
-        build.buildingclassdesc,
-        heat.heatingorsystemdesc,
-        land.propertylandusedesc,
-        story.storydesc,
-        type.typeconstructiondesc
-        FROM properties_2017 prop
-        JOIN (
-            SELECT parcelid, MAX(transactiondate) AS max_transactiondate
-            FROM predictions_2017
-            GROUP BY parcelid
-            ) pred USING(parcelid)
+        SELECT prop.parcelid,
+            predictions_2017.logerror,
+            bathroomcnt AS bathrooms,
+            bedroomcnt AS bedrooms,
+            calculatedfinishedsquarefeet AS sqft,
+            fips,
+            latitude,
+            longitude,
+            lotsizesquarefeet,
+            yearbuilt,
+            predictions_2017.logerror,
+            fireplacecnt AS fireplace,
+            decktypeid AS deck, 
+            poolcnt AS pool, 
+            garagecarcnt AS garage,
+            hashottuborspa AS hottub
+        FROM (
+        SELECT parcelid, MAX(transactiondate) AS max_transactiondate
+        FROM predictions_2017
+        GROUP BY parcelid
+        ) pred 
         JOIN predictions_2017 ON pred.parcelid = predictions_2017.parcelid
-                          AND pred.max_transactiondate = predictions_2017.transactiondate
-        LEFT JOIN airconditioningtype air USING(airconditioningtypeid)
-        LEFT JOIN architecturalstyletype arch USING(architecturalstyletypeid)
-        LEFT JOIN buildingclasstype build USING(buildingclasstypeid)
-        LEFT JOIN heatingorsystemtype heat USING(heatingorsystemtypeid)
+                    AND pred.max_transactiondate = predictions_2017.transactiondate
+        LEFT JOIN properties_2017 prop ON pred.parcelid = prop.parcelid
         LEFT JOIN propertylandusetype land USING(propertylandusetypeid)
-        LEFT JOIN storytype story USING(storytypeid)
-        LEFT JOIN typeconstructiontype type USING(typeconstructiontypeid)
-        WHERE YEAR(transactiondate) = 2017
-            AND latitude IS NOT NULL
-            AND longitude IS NOT NULL;
+        WHERE propertylandusedesc = "Single Family Residential"
+        AND transactiondate <= '2017-12-31'
+        AND prop.longitude IS NOT NULL
+        AND prop.latitude IS NOT NULL
+        AND yearbuilt IS NOT NULL;
         '''
 
     # Read in DataFrame from Codeup db.
@@ -82,50 +84,34 @@ def acquire_zillow_data(new = False):
           
     return df
 
-def handle_missing_values(df, prop_required_columns=0.5, prop_required_rows=0.75):
-    column_threshold = int(round(prop_required_columns * len(df.index), 0))
-    df = df.dropna(axis=1, thresh=column_threshold)
-    row_threshold = int(round(prop_required_rows * len(df.columns), 0))
-    df = df.dropna(axis=0, thresh=row_threshold)
-    return df
-
-def drop_id_columns(df):
-    ids_to_drop = ['id','airconditioningtypeid','architecturalstyletypeid','buildingclasstypeid','heatingorsystemtypeid','propertylandusetypeid','storytypeid','typeconstructiontypeid']
-    df.drop(columns=ids_to_drop, inplace=True)
-    return df
-
 def give_county_names(df):
     df['county'] = df.fips.replace({6037:'LA', 6059:'Orange', 6111:'Ventura'})
     df.drop(columns='fips', inplace=True)
     return df
 
 def create_age(df):
-    if df["yearbuilt"].isnull() == False:
-        df["yearbuilt"] = df["yearbuilt"].astype(int)
-        df["2017_age"] = 2017 - df.yearbuilt
-        df["2017_age"] = df["2017_age"].astype(int)
-        
-    else:
-        df["2017_age"] = 0
-        df["2017_age"] = df["2017_age"].astype(int)
-
+    df["yearbuilt"] = df["yearbuilt"].astype(int)
+    df["2017_age"] = 2017 - df.yearbuilt
+    df["2017_age"] = df["2017_age"].astype(int)
     df.drop(columns='yearbuilt', inplace=True)
     return df
 
-def keep_single_unit_properties(df):
-    df = df[(df.propertylandusedesc=='Manufactured, Modular, Prefabricated Homes') | 
-        (df.propertylandusedesc=='Single Family Residential') |
-        (df.propertylandusedesc=='Condominium') |
-        (df.propertylandusedesc=='Cluster Home') |
-        (df.propertylandusedesc=='Mobile Home') |
-        (df.propertylandusedesc=='Townhouse')]
+def nulls_to_zeros(df, columns):
+    '''
+    Takes in df and and a list of column names and replaces nulls with 0
+    returns data frame
+    ''' 
+    for feature in columns:
+        df[feature]=df[feature].replace(r"^\s*$", np.nan, regex=True)     
+        # fill optional features with 0 assumption that if it was not mark it did not exist
+        df[feature] = df[feature].fillna(0)
     return df
 
-def clean_zillow(df):
-    df = drop_id_columns(df)
+def clean_zillow(df, features):
+    df = nulls_to_zeros(df, features)
     df = give_county_names(df)
     df = create_age(df)
-    df = handle_missing_values(df)
+    df.dropna(inplace=True)
     return df
 
 def split_data(df, test_size=0.15):
